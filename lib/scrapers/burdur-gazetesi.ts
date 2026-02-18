@@ -47,7 +47,7 @@ export class BurdurGazetesiScraper extends BaseScraper {
     console.log(`✅ ${this.siteName}: ${allNews.length} haber`);
     return allNews;
   }
-
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   extractNewsFromHtml(..._args: unknown[]): RawNewsItem[] {
     return [];
   }
