@@ -48,7 +48,7 @@ export class BurdurGazetesiScraper extends BaseScraper {
     return allNews;
   }
 
-  extractNewsFromHtml(__htmlContent: string): RawNewsItem[] {
+  extractNewsFromHtml(..._args: unknown[]): RawNewsItem[] {
     return [];
   }
 
@@ -59,13 +59,11 @@ export class BurdurGazetesiScraper extends BaseScraper {
     const $ = this.load(htmlContent);
     const newsList: NewsItem[] = [];
 
-    // 1. f-hit bölümü
     $("div.f-hit li").each((_, item) => {
       const news = this.parseHitItem($, item, new Date(dateObj));
       if (news) newsList.push(news);
     });
 
-    // 2. f-cat bölümleri
     $("div.f-cat").each((_, catSection) => {
       const category = $(catSection).find("h3").text().trim() || "Genel";
       $(catSection)
@@ -137,7 +135,7 @@ export class BurdurGazetesiScraper extends BaseScraper {
     }
   }
 
-  async fetchNewsDate(__url: string): Promise<Date | null> {
+  async fetchNewsDate(): Promise<Date | null> {
     return null;
   }
 

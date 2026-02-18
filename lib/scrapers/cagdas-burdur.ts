@@ -29,7 +29,7 @@ export class CagdasBurdurScraper extends BaseScraper {
     return allNews;
   }
 
-  extractNewsFromHtml(__htmlContent: string): RawNewsItem[] {
+  extractNewsFromHtml(..._args: unknown[]): RawNewsItem[] {
     return [];
   }
 
@@ -47,8 +47,6 @@ export class CagdasBurdurScraper extends BaseScraper {
 
     let consecutiveOld = 0;
     const MAX_CONSECUTIVE_OLD = 3;
-
-    // Hız için: haberleri batch'ler halinde paralel işle
     const batchSize = Config.MAX_WORKERS;
 
     outer: for (let i = 0; i < sliderItems.length; i += batchSize) {
@@ -134,31 +132,18 @@ export class CagdasBurdurScraper extends BaseScraper {
     if (postTags.length) {
       const match = postTags
         .text()
-        .match(/Yayın Tarihi:\s*(\d{1,2})\s+(\w+)\s+(\d{4})\s+(\d{2}):(\d{2})/);
+        .match(
+          /Yayın Tarihi:\s*(\d{1,2})\s+(\w+)\s+(\d{4})\s+(\d{2}):(\d{2})/,
+        );
       if (match) {
         const monthMap: Record<string, number> = {
-          ocak: 1,
-          şubat: 2,
-          mart: 3,
-          nisan: 4,
-          mayıs: 5,
-          haziran: 6,
-          temmuz: 7,
-          ağustos: 8,
-          eylül: 9,
-          ekim: 10,
-          kasım: 11,
-          aralık: 12,
+          ocak: 1, şubat: 2, mart: 3, nisan: 4,
+          mayıs: 5, haziran: 6, temmuz: 7, ağustos: 8,
+          eylül: 9, ekim: 10, kasım: 11, aralık: 12,
         };
         const month = monthMap[match[2].toLowerCase()];
         if (month) {
-          return new Date(
-            +match[3],
-            month - 1,
-            +match[1],
-            +match[4],
-            +match[5],
-          );
+          return new Date(+match[3], month - 1, +match[1], +match[4], +match[5]);
         }
       }
     }
