@@ -29,7 +29,7 @@ export class CagdasBurdurScraper extends BaseScraper {
     return allNews;
   }
 
-  extractNewsFromHtml(_htmlContent: string): RawNewsItem[] {
+  extractNewsFromHtml(__htmlContent: string): RawNewsItem[] {
     return [];
   }
 
@@ -50,7 +50,6 @@ export class CagdasBurdurScraper extends BaseScraper {
 
     // Hız için: haberleri batch'ler halinde paralel işle
     const batchSize = Config.MAX_WORKERS;
-    const batches: typeof sliderItems = [];
 
     outer: for (let i = 0; i < sliderItems.length; i += batchSize) {
       if (consecutiveOld >= MAX_CONSECUTIVE_OLD) break;

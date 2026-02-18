@@ -48,7 +48,7 @@ export class BurdurGazetesiScraper extends BaseScraper {
     return allNews;
   }
 
-  extractNewsFromHtml(_htmlContent: string): RawNewsItem[] {
+  extractNewsFromHtml(__htmlContent: string): RawNewsItem[] {
     return [];
   }
 
@@ -137,7 +137,7 @@ export class BurdurGazetesiScraper extends BaseScraper {
     }
   }
 
-  async fetchNewsDate(_url: string): Promise<Date | null> {
+  async fetchNewsDate(__url: string): Promise<Date | null> {
     return null;
   }
 
