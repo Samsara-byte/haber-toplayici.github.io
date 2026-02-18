@@ -113,10 +113,10 @@ export abstract class BaseScraper {
     }
   }
 
-  protected load(html: string): cheerio.CheerioAPI {
-    return cheerio.load(html)
-  }
-
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+protected load(html: string): any {
+  return cheerio.load(html)
+}
   // ============================================================
   // PARALEL TARİH ÇEKME - EARLY STOPPING İLE (Hız optimizasyonu)
   // Haberler batch'ler halinde paralel işlenir.
