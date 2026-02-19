@@ -89,30 +89,31 @@ export abstract class BaseScraper {
     )
   }
 
-  protected async httpGet(
-    url: string,
-    options?: {
-      params?: Record<string, unknown>
-      headers?: Record<string, string>
-      timeout?: number
-    }
-  ): Promise<{ text: string; json: () => unknown; status: number } | null> {
-    try {
-      const res = await this.httpClient.get(url, {
-        params: options?.params,
-        headers: options?.headers,
-        timeout: options?.timeout ?? Config.REQUEST_TIMEOUT,
-      })
-      return {
-        text: res.data as string,
-        json: () => res.data,
-        status: res.status,
-      }
-    } catch {
-      return null
-    }
+ protected async httpGet(
+  url: string,
+  options?: {
+    params?: Record<string, unknown>
+    headers?: Record<string, string>
+    timeout?: number
   }
-
+): Promise<{ text: string; json: () => unknown; status: number } | null> {
+  try {
+    const res = await this.httpClient.get(url, {
+      params: options?.params,
+      headers: options?.headers,
+      timeout: options?.timeout ?? Config.REQUEST_TIMEOUT,
+    })
+    return {
+      text: res.data as string,
+      json: () => res.data,
+      status: res.status,
+    }
+  } catch (e: unknown) {
+    const err = e as { code?: string; response?: { status: number }; message?: string }
+    console.error(`❌ HTTP hata [${url}]: kod=${err.code} status=${err.response?.status} mesaj=${err.message}`)
+    return null
+  }
+} 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 protected load(html: string): any {
   return cheerio.load(html)
