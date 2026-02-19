@@ -27,24 +27,31 @@ export class BurdurGazetesiScraper extends BaseScraper {
     for (const [dateObj, dateLabel] of datesToScrape) {
       const dateStr = this.formatDateForUrl(dateObj);
       const archiveUrl = `${this.siteConfig.base_url}/arsiv/${dateStr}`;
-      console.log(`  📅 ${dateLabel} (${dateStr}) taranıyor...`);
+      console.log(`  🔗 İstek atılıyor: ${archiveUrl}`);
 
       const response = await this.httpGet(archiveUrl);
-      if (response) {
-        const pageNews = this.extractNewsFromHtmlWithDate(
-          response.text,
-          dateObj,
-        );
-        allNews.push(...pageNews);
-        console.log(`  ✅ ${dateLabel}: ${pageNews.length} haber`);
+      if (!response) {
+        console.log(`  ❌ ${dateLabel}: HTTP isteği başarısız`);
+        continue;
       }
+
+      console.log(`  📄 ${dateLabel}: HTTP ${response.status}, HTML uzunluğu: ${response.text.length}`);
+
+      const $ = this.load(response.text);
+      const fHitCount = $("div.f-hit li").length;
+      const fCatCount = $("div.f-cat").length;
+      console.log(`  📊 f-hit li: ${fHitCount}, f-cat: ${fCatCount}`);
+
+      const pageNews = this.extractNewsFromHtmlWithDate(response.text, dateObj);
+      allNews.push(...pageNews);
+      console.log(`  ✅ ${dateLabel}: ${pageNews.length} haber`);
     }
 
     allNews.sort(
       (a, b) =>
-        new Date(b.parsed_date).getTime() - new Date(a.parsed_date).getTime(),
+        new Date(b.parsed_date).getTime() - new Date(a.parsed_date).getTime()
     );
-    console.log(`✅ ${this.siteName}: ${allNews.length} haber`);
+    console.log(`✅ ${this.siteName}: ${allNews.length} toplam haber`);
     return allNews;
   }
 
@@ -53,27 +60,28 @@ export class BurdurGazetesiScraper extends BaseScraper {
     return [];
   }
 
-  private extractNewsFromHtmlWithDate(
-    htmlContent: string,
-    dateObj: Date,
-  ): NewsItem[] {
+  private extractNewsFromHtmlWithDate(htmlContent: string, dateObj: Date): NewsItem[] {
     const $ = this.load(htmlContent);
     const newsList: NewsItem[] = [];
     const seenLinks = new Set<string>();
 
-    // 1. f-hit bölümü — a > h2 yapısı
-    $("div.f-hit li").each((_: number, item: unknown) => {
+    // 1. f-hit bölümü
+    $("div.f-hit li").each((i: number, item: unknown) => {
       try {
-        const linkTag = $(item as never)
-          .find("a")
-          .first();
-        if (!linkTag.length) return;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const el = item as any;
+        const linkTag = $(el).find("a").first();
+        if (!linkTag.length) {
+          console.log(`    f-hit[${i}]: link yok`);
+          return;
+        }
 
         const href = linkTag.attr("href") || "";
-        if (!href) return;
-
         const title = linkTag.find("h2").text().trim();
-        if (!title || title.length < 10) return;
+        if (!title || title.length < 10) {
+          console.log(`    f-hit[${i}]: başlık kısa veya yok: "${title}"`);
+          return;
+        }
 
         const fullLink = href.startsWith("/")
           ? `${this.siteConfig.base_url}${href}`
@@ -82,68 +90,54 @@ export class BurdurGazetesiScraper extends BaseScraper {
         if (seenLinks.has(fullLink)) return;
         seenLinks.add(fullLink);
 
-        // Saat: span.e1 > time
-        const timeText = linkTag
-          .find("span.e1 time")
-          .text()
-          .trim()
-          .replace("<s>:</s>", ":")
-          .replace(/\s/g, "");
-        const timeMatch = timeText.match(/(\d{1,2}):(\d{2})/);
+        const timeText = $(el).find("time").text().replace(/\s/g, "").trim();
+        const timeMatch = timeText.match(/(\d{1,2})[:\s](\d{2})/);
         const d = new Date(dateObj);
         if (timeMatch) d.setHours(+timeMatch[1], +timeMatch[2], 0, 0);
 
+        console.log(`    f-hit[${i}]: "${title.slice(0, 30)}" - ${timeText}`);
         newsList.push(this.formatNewsItem(title, fullLink, "", "Manşet", d));
-      } catch {
-        /* skip */
+      } catch (e) {
+        console.log(`    f-hit[${i}] hata:`, e);
       }
     });
 
-    // 2. f-cat bölümleri — time ve a ayrı elementler
-    $("div.f-cat").each((_: number, catSection: unknown) => {
-      const category =
-        $(catSection as never)
-          .find("h3")
-          .text()
-          .trim() || "Genel";
+    // 2. f-cat bölümleri
+    $("div.f-cat").each((ci: number, catSection: unknown) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const catEl = catSection as any;
+      const category = $(catEl).find("h3").text().trim() || "Genel";
+      console.log(`    f-cat[${ci}]: "${category}"`);
 
-      $(catSection as never)
-        .find("ul.list li")
-        .each((_: number, item: unknown) => {
-          try {
-            const linkTag = $(item as never)
-              .find("a")
-              .first();
-            if (!linkTag.length) return;
+      $(catEl).find("li").each((i: number, item: unknown) => {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const el = item as any;
+          const linkTag = $(el).find("a").first();
+          if (!linkTag.length) return;
 
-            const href = linkTag.attr("href") || "";
-            const title = linkTag.text().trim();
-            if (!href || !title || title.length < 10) return;
+          const href = linkTag.attr("href") || "";
+          const title = linkTag.text().trim();
+          if (!href || !title || title.length < 10) return;
 
-            const fullLink = href.startsWith("/")
-              ? `${this.siteConfig.base_url}${href}`
-              : href;
+          const fullLink = href.startsWith("/")
+            ? `${this.siteConfig.base_url}${href}`
+            : href;
 
-            if (seenLinks.has(fullLink)) return;
-            seenLinks.add(fullLink);
+          if (seenLinks.has(fullLink)) return;
+          seenLinks.add(fullLink);
 
-            // Saat: li içindeki time elementi (a'nın dışında)
-            const timeText = $(item as never)
-              .find("time")
-              .first()
-              .text()
-              .trim();
-            const timeMatch = timeText.match(/(\d{1,2}):(\d{2})/);
-            const d = new Date(dateObj);
-            if (timeMatch) d.setHours(+timeMatch[1], +timeMatch[2], 0, 0);
+          const timeText = $(el).find("time").text().replace(/\s/g, "").trim();
+          const timeMatch = timeText.match(/(\d{1,2})[:\s](\d{2})/);
+          const d = new Date(dateObj);
+          if (timeMatch) d.setHours(+timeMatch[1], +timeMatch[2], 0, 0);
 
-            newsList.push(
-              this.formatNewsItem(title, fullLink, "", category, d),
-            );
-          } catch {
-            /* skip */
-          }
-        });
+          console.log(`      li[${i}]: "${title.slice(0, 30)}" - ${timeText}`);
+          newsList.push(this.formatNewsItem(title, fullLink, "", category, d));
+        } catch (e) {
+          console.log(`      li[${i}] hata:`, e);
+        }
+      });
     });
 
     return newsList;
