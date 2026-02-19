@@ -24,12 +24,31 @@ export class BurdurGazetesiScraper extends BaseScraper {
       [new Date(this.yesterday), "Dün"],
     ];
 
+    const headers = {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+      "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
+      "Accept-Encoding": "gzip, deflate, br",
+      "Referer": "https://www.burdurgazetesi.com/",
+      "DNT": "1",
+      "Connection": "keep-alive",
+      "Upgrade-Insecure-Requests": "1",
+      "Sec-Fetch-Dest": "document",
+      "Sec-Fetch-Mode": "navigate",
+      "Sec-Fetch-Site": "same-origin",
+      "Cache-Control": "max-age=0",
+    }
+
     for (const [dateObj, dateLabel] of datesToScrape) {
       const dateStr = this.formatDateForUrl(dateObj);
       const archiveUrl = `${this.siteConfig.base_url}/arsiv/${dateStr}`;
       console.log(`  🔗 İstek atılıyor: ${archiveUrl}`);
 
-      const response = await this.httpGet(archiveUrl);
+      // Önce ana sayfaya git (cookie almak için)
+      await this.httpGet(this.siteConfig.base_url, { headers })
+      await this.sleep(500)
+
+      const response = await this.httpGet(archiveUrl, { headers });
       if (!response) {
         console.log(`  ❌ ${dateLabel}: HTTP isteği başarısız`);
         continue;
@@ -71,17 +90,11 @@ export class BurdurGazetesiScraper extends BaseScraper {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const el = item as any;
         const linkTag = $(el).find("a").first();
-        if (!linkTag.length) {
-          console.log(`    f-hit[${i}]: link yok`);
-          return;
-        }
+        if (!linkTag.length) return;
 
         const href = linkTag.attr("href") || "";
         const title = linkTag.find("h2").text().trim();
-        if (!title || title.length < 10) {
-          console.log(`    f-hit[${i}]: başlık kısa veya yok: "${title}"`);
-          return;
-        }
+        if (!title || title.length < 10) return;
 
         const fullLink = href.startsWith("/")
           ? `${this.siteConfig.base_url}${href}`
@@ -95,7 +108,7 @@ export class BurdurGazetesiScraper extends BaseScraper {
         const d = new Date(dateObj);
         if (timeMatch) d.setHours(+timeMatch[1], +timeMatch[2], 0, 0);
 
-        console.log(`    f-hit[${i}]: "${title.slice(0, 30)}" - ${timeText}`);
+        console.log(`    f-hit[${i}]: "${title.slice(0, 30)}"`);
         newsList.push(this.formatNewsItem(title, fullLink, "", "Manşet", d));
       } catch (e) {
         console.log(`    f-hit[${i}] hata:`, e);
@@ -103,13 +116,12 @@ export class BurdurGazetesiScraper extends BaseScraper {
     });
 
     // 2. f-cat bölümleri
-    $("div.f-cat").each((ci: number, catSection: unknown) => {
+    $("div.f-cat").each((_ci: number, catSection: unknown) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const catEl = catSection as any;
       const category = $(catEl).find("h3").text().trim() || "Genel";
-      console.log(`    f-cat[${ci}]: "${category}"`);
 
-      $(catEl).find("li").each((i: number, item: unknown) => {
+      $(catEl).find("li").each((_i: number, item: unknown) => {
         try {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const el = item as any;
@@ -132,11 +144,8 @@ export class BurdurGazetesiScraper extends BaseScraper {
           const d = new Date(dateObj);
           if (timeMatch) d.setHours(+timeMatch[1], +timeMatch[2], 0, 0);
 
-          console.log(`      li[${i}]: "${title.slice(0, 30)}" - ${timeText}`);
           newsList.push(this.formatNewsItem(title, fullLink, "", category, d));
-        } catch (e) {
-          console.log(`      li[${i}] hata:`, e);
-        }
+        } catch { /* skip */ }
       });
     });
 
