@@ -39,6 +39,12 @@ export interface ScrapingState {
   completed: boolean;
 }
 
+export interface SiteProgress {
+  name: string;
+  status: "waiting" | "running" | "done" | "error";
+  count: number;
+}
+
 export interface ScrapingStatusResponse {
   is_scraping: boolean;
   progress: number;
@@ -50,6 +56,7 @@ export interface ScrapingStatusResponse {
   yesterday_news: NewsItem[];
   errors: string[];
   completed: boolean;
+  site_progresses?: SiteProgress[];
 }
 
 export interface RawNewsItem {

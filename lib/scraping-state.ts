@@ -1,12 +1,14 @@
-import { NewsItem, ScrapingState } from '@/types'
+import { NewsItem, ScrapingState, SiteProgress } from '@/types'
 
 declare global {
   // eslint-disable-next-line no-var
   var __scrapingState: ScrapingState | undefined
+  // eslint-disable-next-line no-var
+  var __siteProgresses: SiteProgress[] | undefined
 }
 
-function getInitialState(): ScrapingState {
-  return {
+if (!global.__scrapingState) {
+  global.__scrapingState = {
     is_scraping: false,
     progress: 0,
     current_site: '',
@@ -16,15 +18,19 @@ function getInitialState(): ScrapingState {
   }
 }
 
-if (!global.__scrapingState) {
-  global.__scrapingState = getInitialState()
+if (!global.__siteProgresses) {
+  global.__siteProgresses = []
 }
 
 export function getScrapingState(): ScrapingState {
   return global.__scrapingState!
 }
 
-export function resetScrapingState(): void {
+export function getSiteProgresses(): SiteProgress[] {
+  return global.__siteProgresses!
+}
+
+export function resetScrapingState(siteNames: string[]): void {
   global.__scrapingState = {
     is_scraping: true,
     progress: 0,
@@ -33,12 +39,30 @@ export function resetScrapingState(): void {
     errors: [],
     completed: false,
   }
+  global.__siteProgresses = siteNames.map((name) => ({
+    name,
+    status: 'waiting',
+    count: 0,
+  }))
 }
 
 export function updateProgress(progress: number, currentSite: string): void {
   if (!global.__scrapingState) return
   global.__scrapingState.progress = progress
   global.__scrapingState.current_site = currentSite
+}
+
+export function setSiteStatus(
+  name: string,
+  status: SiteProgress['status'],
+  count?: number
+): void {
+  if (!global.__siteProgresses) return
+  const site = global.__siteProgresses.find((s) => s.name === name)
+  if (site) {
+    site.status = status
+    if (count !== undefined) site.count = count
+  }
 }
 
 export function addNews(newItems: NewsItem[]): void {
@@ -82,5 +106,6 @@ export function buildStatusResponse() {
     yesterday_news: yesterdayNews,
     errors: state.errors,
     completed: state.completed,
+    site_progresses: getSiteProgresses(),
   }
 }

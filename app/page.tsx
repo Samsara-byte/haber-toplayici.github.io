@@ -1,9 +1,11 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { NewsItem, ScrapingStatusResponse } from '@/types'
+import { NewsItem, ScrapingStatusResponse, SiteProgress } from '@/types'
 
-const LOCAL_SITE_NAMES = ['Burdur Yeni Gün', 'Bomba15', 'Burdur Gazetesi', 'Çağdaş Burdur', 'NNC Haber']
+const LOCAL_SITE_NAMES = [
+  'Burdur Yeni Gün', 'Bomba15', 'Burdur Gazetesi', 'Çağdaş Burdur', 'NNC Haber',
+]
 
 interface NewsData {
   local: NewsItem[]
@@ -22,6 +24,7 @@ export default function HomePage() {
   const [activeTab, setActiveTab] = useState<'local' | 'national'>('local')
   const [newsData, setNewsData] = useState<NewsData>({ local: [], national: [] })
   const [updateTime, setUpdateTime] = useState('')
+  const [siteProgresses, setSiteProgresses] = useState<SiteProgress[]>([])
   const eventSourceRef = useRef<EventSource | null>(null)
 
   const getUpdateTime = () =>
@@ -36,6 +39,8 @@ export default function HomePage() {
     setTotalCount(data.total)
     setTodayCount(data.today_count)
     setYesterdayCount(data.yesterday_count)
+
+    if (data.site_progresses) setSiteProgresses(data.site_progresses)
 
     const all = [...(data.today_news || []), ...(data.yesterday_news || [])]
     const local = all.filter((n) => LOCAL_SITE_NAMES.includes(n.source))
@@ -69,6 +74,7 @@ export default function HomePage() {
     if (isScraping) return
     setIsScraping(true)
     setProgress(0)
+    setSiteProgresses([])
     setCurrentSite('Başlatılıyor...')
 
     try {
@@ -105,7 +111,9 @@ export default function HomePage() {
 
   useEffect(() => {
     setUpdateTime(getUpdateTime())
-    return () => { if (eventSourceRef.current) eventSourceRef.current.close() }
+    return () => {
+      if (eventSourceRef.current) eventSourceRef.current.close()
+    }
   }, [])
 
   const sourceCount = Object.keys(
@@ -185,6 +193,29 @@ export default function HomePage() {
     ))
   }
 
+  const statusColor = (status: string) => {
+    if (status === 'done') return { bg: 'rgba(46,204,113,0.2)', border: 'rgba(46,204,113,0.4)' }
+    if (status === 'running') return { bg: 'rgba(102,126,234,0.2)', border: 'rgba(102,126,234,0.4)' }
+    if (status === 'error') return { bg: 'rgba(231,76,60,0.2)', border: 'rgba(231,76,60,0.4)' }
+    return { bg: 'rgba(255,255,255,0.05)', border: 'rgba(255,255,255,0.1)' }
+  }
+
+  const statusIcon = (status: string) => {
+    if (status === 'waiting') return '⏳'
+    if (status === 'running') return '🔄'
+    if (status === 'done') return '✅'
+    if (status === 'error') return '❌'
+    return '⏳'
+  }
+
+  const statusLabel = (site: SiteProgress) => {
+    if (site.status === 'waiting') return 'Bekliyor'
+    if (site.status === 'running') return 'Taranıyor...'
+    if (site.status === 'done') return `${site.count} haber`
+    if (site.status === 'error') return 'Hata'
+    return ''
+  }
+
   return (
     <>
       <div className="bg-animation">
@@ -193,23 +224,62 @@ export default function HomePage() {
         <div className="blob blob-3" />
       </div>
 
+      {/* Progress Overlay */}
       <div className={`progress-overlay ${isScraping ? 'active' : ''}`}>
         <div className="progress-content-wrapper">
           <div className="progress-site-info">
             <div className="spinner-wrapper"><div className="loading-spinner" /></div>
             <h3>{currentSite}</h3>
           </div>
+
           <div className="progress-bar-container">
             <div className="progress-bar-fill" style={{ width: `${progress}%` }} />
           </div>
           <div className="progress-stats">
             <span>%{progress}</span>
-            <span>{totalCount} haber</span>
+            <span>{totalCount} haber bulundu</span>
           </div>
+
+          {/* Site bazlı durum listesi */}
+          {siteProgresses.length > 0 && (
+            <div style={{
+              marginTop: '1.5rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.5rem',
+              maxHeight: '220px',
+              overflowY: 'auto',
+            }}>
+              {siteProgresses.map((site) => {
+                const colors = statusColor(site.status)
+                return (
+                  <div key={site.name} style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '0.5rem 0.75rem',
+                    borderRadius: '8px',
+                    background: colors.bg,
+                    border: `1px solid ${colors.border}`,
+                    fontSize: '0.85rem',
+                    transition: 'all 0.3s ease',
+                  }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      {statusIcon(site.status)} {site.name}
+                    </span>
+                    <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.8rem' }}>
+                      {statusLabel(site)}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       </div>
 
       <div className="container">
+        {/* HEADER */}
         <div className="glass-card header">
           <div className="header-top">
             <div className="brand">
@@ -243,13 +313,20 @@ export default function HomePage() {
           </div>
         </div>
 
+        {/* TABS */}
         <div className="glass-card tabs-container">
           <div className="tabs-nav">
-            <button className={`tab-btn ${activeTab === 'local' ? 'active' : ''}`} onClick={() => setActiveTab('local')}>
+            <button
+              className={`tab-btn ${activeTab === 'local' ? 'active' : ''}`}
+              onClick={() => setActiveTab('local')}
+            >
               <LocationIcon /> <span>Yerel Haberler</span>
               <span className="tab-count">{localCount}</span>
             </button>
-            <button className={`tab-btn ${activeTab === 'national' ? 'active' : ''}`} onClick={() => setActiveTab('national')}>
+            <button
+              className={`tab-btn ${activeTab === 'national' ? 'active' : ''}`}
+              onClick={() => setActiveTab('national')}
+            >
               <GlobeIcon /> <span>Ulusal Siteler</span>
               <span className="tab-count">{nationalCount}</span>
             </button>
@@ -276,6 +353,7 @@ export default function HomePage() {
           </div>
         </div>
 
+        {/* FOOTER */}
         <div className="footer">
           <div className="glass-card footer-content">
             <div className="footer-left">
