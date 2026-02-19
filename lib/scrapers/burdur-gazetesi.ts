@@ -1,6 +1,7 @@
 import { BaseScraper } from "./base-scraper";
 import { Config } from "@/lib/config";
 import { NewsItem, RawNewsItem } from "@/types";
+import axios from "axios";
 
 export class BurdurGazetesiScraper extends BaseScraper {
   constructor() {
@@ -15,6 +16,43 @@ export class BurdurGazetesiScraper extends BaseScraper {
     return this.scrapeWithDate();
   }
 
+  private async fetchViaProxy(url: string): Promise<string | null> {
+    // 1. allorigins.win proxy dene (ücretsiz, Cloudflare bypass)
+    try {
+      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`
+      const res = await axios.get(proxyUrl, { timeout: 20000 })
+      const data = res.data as { contents?: string }
+      if (data?.contents && data.contents.length > 500) {
+        console.log(`  ✅ allorigins proxy başarılı (${data.contents.length} karakter)`)
+        return data.contents
+      }
+    } catch (e: unknown) {
+      const err = e as { message?: string }
+      console.log(`  ⚠️ allorigins hata: ${err.message}, direkt deneniyor...`)
+    }
+
+    // 2. corsproxy.io dene
+    try {
+      const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`
+      const res = await axios.get(proxyUrl, {
+        timeout: 20000,
+        headers: { "User-Agent": Config.USER_AGENT },
+      })
+      if (res.data && String(res.data).length > 500) {
+        console.log(`  ✅ corsproxy başarılı`)
+        return res.data as string
+      }
+    } catch (e: unknown) {
+      const err = e as { message?: string }
+      console.log(`  ⚠️ corsproxy hata: ${err.message}`)
+    }
+
+    // 3. Direkt istek dene
+    console.log(`  ⚠️ Proxy'ler başarısız, direkt istek deneniyor...`)
+    const res = await this.httpGet(url)
+    return res?.text || null
+  }
+
   async scrapeWithDate(): Promise<NewsItem[]> {
     console.log(`📰 ${this.siteName} taranıyor...`);
     const allNews: NewsItem[] = [];
@@ -24,44 +62,20 @@ export class BurdurGazetesiScraper extends BaseScraper {
       [new Date(this.yesterday), "Dün"],
     ];
 
-    const headers = {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-      "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
-      "Accept-Encoding": "gzip, deflate, br",
-      "Referer": "https://www.burdurgazetesi.com/",
-      "DNT": "1",
-      "Connection": "keep-alive",
-      "Upgrade-Insecure-Requests": "1",
-      "Sec-Fetch-Dest": "document",
-      "Sec-Fetch-Mode": "navigate",
-      "Sec-Fetch-Site": "same-origin",
-      "Cache-Control": "max-age=0",
-    }
-
     for (const [dateObj, dateLabel] of datesToScrape) {
       const dateStr = this.formatDateForUrl(dateObj);
       const archiveUrl = `${this.siteConfig.base_url}/arsiv/${dateStr}`;
       console.log(`  🔗 İstek atılıyor: ${archiveUrl}`);
 
-      // Önce ana sayfaya git (cookie almak için)
-      await this.httpGet(this.siteConfig.base_url, { headers })
-      await this.sleep(500)
-
-      const response = await this.httpGet(archiveUrl, { headers });
-      if (!response) {
-        console.log(`  ❌ ${dateLabel}: HTTP isteği başarısız`);
+      const html = await this.fetchViaProxy(archiveUrl)
+      if (!html) {
+        console.log(`  ❌ ${dateLabel}: tüm yöntemler başarısız`);
         continue;
       }
 
-      console.log(`  📄 ${dateLabel}: HTTP ${response.status}, HTML uzunluğu: ${response.text.length}`);
+      console.log(`  📄 ${dateLabel}: HTML uzunluğu: ${html.length}`);
 
-      const $ = this.load(response.text);
-      const fHitCount = $("div.f-hit li").length;
-      const fCatCount = $("div.f-cat").length;
-      console.log(`  📊 f-hit li: ${fHitCount}, f-cat: ${fCatCount}`);
-
-      const pageNews = this.extractNewsFromHtmlWithDate(response.text, dateObj);
+      const pageNews = this.extractNewsFromHtmlWithDate(html, dateObj);
       allNews.push(...pageNews);
       console.log(`  ✅ ${dateLabel}: ${pageNews.length} haber`);
     }
@@ -85,7 +99,7 @@ export class BurdurGazetesiScraper extends BaseScraper {
     const seenLinks = new Set<string>();
 
     // 1. f-hit bölümü
-    $("div.f-hit li").each((i: number, item: unknown) => {
+    $("div.f-hit li").each((_i: number, item: unknown) => {
       try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const el = item as any;
@@ -108,11 +122,8 @@ export class BurdurGazetesiScraper extends BaseScraper {
         const d = new Date(dateObj);
         if (timeMatch) d.setHours(+timeMatch[1], +timeMatch[2], 0, 0);
 
-        console.log(`    f-hit[${i}]: "${title.slice(0, 30)}"`);
         newsList.push(this.formatNewsItem(title, fullLink, "", "Manşet", d));
-      } catch (e) {
-        console.log(`    f-hit[${i}] hata:`, e);
-      }
+      } catch { /* skip */ }
     });
 
     // 2. f-cat bölümleri
