@@ -1,8 +1,8 @@
-import { NextResponse } from "next/server";
-import { buildStatusResponse } from "@/lib/scraping-state";
+export const dynamic = 'force-dynamic'
 
-export const dynamic = "force-dynamic";
+import { NextResponse } from 'next/server'
 
 export async function GET() {
-  return NextResponse.json(buildStatusResponse());
+  const { buildStatusResponse } = await import('@/lib/scraping-state')
+  return NextResponse.json(buildStatusResponse())
 }
