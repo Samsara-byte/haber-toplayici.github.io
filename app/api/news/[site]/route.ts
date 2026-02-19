@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getScraper, runScraper } from "@/lib/scrapers";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(
   _request: Request,
   { params }: { params: { site: string } },

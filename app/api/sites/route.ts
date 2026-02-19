@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { Config } from "@/lib/config";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   try {
     const sites = Object.entries(Config.SITES).map(([id, cfg]) => ({

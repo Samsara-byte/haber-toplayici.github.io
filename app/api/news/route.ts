@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAllScrapers, runScraper } from "@/lib/scrapers";
 import { NewsItem } from "@/types";
-
+export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const allNews: NewsItem[] = [];
