@@ -47,6 +47,7 @@ export class BurdurGazetesiScraper extends BaseScraper {
     console.log(`✅ ${this.siteName}: ${allNews.length} haber`);
     return allNews;
   }
+
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   extractNewsFromHtml(..._args: unknown[]): RawNewsItem[] {
     return [];
@@ -58,81 +59,94 @@ export class BurdurGazetesiScraper extends BaseScraper {
   ): NewsItem[] {
     const $ = this.load(htmlContent);
     const newsList: NewsItem[] = [];
+    const seenLinks = new Set<string>();
 
-    $("div.f-hit li").each((_, item) => {
-      const news = this.parseHitItem($, item, new Date(dateObj));
-      if (news) newsList.push(news);
+    // 1. f-hit bölümü — a > h2 yapısı
+    $("div.f-hit li").each((_: number, item: unknown) => {
+      try {
+        const linkTag = $(item as never)
+          .find("a")
+          .first();
+        if (!linkTag.length) return;
+
+        const href = linkTag.attr("href") || "";
+        if (!href) return;
+
+        const title = linkTag.find("h2").text().trim();
+        if (!title || title.length < 10) return;
+
+        const fullLink = href.startsWith("/")
+          ? `${this.siteConfig.base_url}${href}`
+          : href;
+
+        if (seenLinks.has(fullLink)) return;
+        seenLinks.add(fullLink);
+
+        // Saat: span.e1 > time
+        const timeText = linkTag
+          .find("span.e1 time")
+          .text()
+          .trim()
+          .replace("<s>:</s>", ":")
+          .replace(/\s/g, "");
+        const timeMatch = timeText.match(/(\d{1,2}):(\d{2})/);
+        const d = new Date(dateObj);
+        if (timeMatch) d.setHours(+timeMatch[1], +timeMatch[2], 0, 0);
+
+        newsList.push(this.formatNewsItem(title, fullLink, "", "Manşet", d));
+      } catch {
+        /* skip */
+      }
     });
 
-    $("div.f-cat").each((_, catSection) => {
-      const category = $(catSection).find("h3").text().trim() || "Genel";
-      $(catSection)
-        .find("li")
-        .each((_, item) => {
-          const news = this.parseListItem($, item, new Date(dateObj), category);
-          if (news) newsList.push(news);
+    // 2. f-cat bölümleri — time ve a ayrı elementler
+    $("div.f-cat").each((_: number, catSection: unknown) => {
+      const category =
+        $(catSection as never)
+          .find("h3")
+          .text()
+          .trim() || "Genel";
+
+      $(catSection as never)
+        .find("ul.list li")
+        .each((_: number, item: unknown) => {
+          try {
+            const linkTag = $(item as never)
+              .find("a")
+              .first();
+            if (!linkTag.length) return;
+
+            const href = linkTag.attr("href") || "";
+            const title = linkTag.text().trim();
+            if (!href || !title || title.length < 10) return;
+
+            const fullLink = href.startsWith("/")
+              ? `${this.siteConfig.base_url}${href}`
+              : href;
+
+            if (seenLinks.has(fullLink)) return;
+            seenLinks.add(fullLink);
+
+            // Saat: li içindeki time elementi (a'nın dışında)
+            const timeText = $(item as never)
+              .find("time")
+              .first()
+              .text()
+              .trim();
+            const timeMatch = timeText.match(/(\d{1,2}):(\d{2})/);
+            const d = new Date(dateObj);
+            if (timeMatch) d.setHours(+timeMatch[1], +timeMatch[2], 0, 0);
+
+            newsList.push(
+              this.formatNewsItem(title, fullLink, "", category, d),
+            );
+          } catch {
+            /* skip */
+          }
         });
     });
 
     return newsList;
-  }
-
-  private parseHitItem(
-    $: ReturnType<typeof this.load>,
-    item: ReturnType<typeof $>[0],
-    dateObj: Date,
-  ): NewsItem | null {
-    try {
-      const linkTag = $(item).find("a").first();
-      if (!linkTag.length) return null;
-      const href = linkTag.attr("href") || "";
-      if (!href) return null;
-      const title = linkTag.find("h2").text().trim();
-      if (!title || title.length < 10) return null;
-      const fullLink = href.startsWith("/")
-        ? `${this.siteConfig.base_url}${href}`
-        : href;
-
-      const timeMatch = linkTag
-        .find("time")
-        .text()
-        .trim()
-        .match(/(\d{2}):(\d{2})/);
-      if (timeMatch) dateObj.setHours(+timeMatch[1], +timeMatch[2], 0, 0);
-
-      return this.formatNewsItem(title, fullLink, "", "Manşet", dateObj);
-    } catch {
-      return null;
-    }
-  }
-
-  private parseListItem(
-    $: ReturnType<typeof this.load>,
-    item: ReturnType<typeof $>[0],
-    dateObj: Date,
-    category: string,
-  ): NewsItem | null {
-    try {
-      const linkTag = $(item).find("a").first();
-      if (!linkTag.length) return null;
-      const href = linkTag.attr("href") || "";
-      const title = linkTag.text().trim();
-      if (!href || !title || title.length < 10) return null;
-      const fullLink = href.startsWith("/")
-        ? `${this.siteConfig.base_url}${href}`
-        : href;
-
-      const timeMatch = $(item)
-        .find("time")
-        .text()
-        .trim()
-        .match(/(\d{2}):(\d{2})/);
-      if (timeMatch) dateObj.setHours(+timeMatch[1], +timeMatch[2], 0, 0);
-
-      return this.formatNewsItem(title, fullLink, "", category, dateObj);
-    } catch {
-      return null;
-    }
   }
 
   async fetchNewsDate(): Promise<Date | null> {
