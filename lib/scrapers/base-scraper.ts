@@ -1,5 +1,7 @@
 import axios, { AxiosInstance } from 'axios'
 import * as cheerio from 'cheerio'
+import * as http from 'http'
+import * as https from 'https'
 import { Config } from '@/lib/config'
 import { NewsItem, RawNewsItem, SiteConfig } from '@/types'
 
@@ -15,21 +17,31 @@ export abstract class BaseScraper {
     this.yesterday = new Date(this.today)
     this.yesterday.setDate(this.yesterday.getDate() - 1)
 
+    // HTTP keep-alive: TCP bağlantılarını yeniden kullan → bağlantı kurma overhead'i yok
+    const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 50 })
+    const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 50 })
+
     this.httpClient = axios.create({
       timeout: Config.REQUEST_TIMEOUT,
+      httpAgent,
+      httpsAgent,
       headers: {
         'User-Agent': Config.USER_AGENT,
         Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'tr-TR,tr;q=0.9,en;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br',
         Connection: 'keep-alive',
       },
+      // Gzip otomatik decompress
+      decompress: true,
+      maxRedirects: 5,
     })
   }
 
   abstract get siteName(): string
   abstract scrape(): Promise<NewsItem[]>
-  abstract extractNewsFromHtml(htmlContent: string, ...args: unknown[]): RawNewsItem[]
-  abstract fetchNewsDate(url: string): Promise<Date | null>
+  abstract extractNewsFromHtml(...args: unknown[]): RawNewsItem[]
+  abstract fetchNewsDate(url?: string): Promise<Date | null>
 
   protected isRecentNews(newsDate: Date, days?: number): boolean {
     const rangeDays = days ?? Config.DATE_RANGE_DAYS
@@ -89,49 +101,51 @@ export abstract class BaseScraper {
     )
   }
 
- protected async httpGet(
-  url: string,
-  options?: {
-    params?: Record<string, unknown>
-    headers?: Record<string, string>
-    timeout?: number
-  }
-): Promise<{ text: string; json: () => unknown; status: number } | null> {
-  try {
-    const res = await this.httpClient.get(url, {
-      params: options?.params,
-      headers: options?.headers,
-      timeout: options?.timeout ?? Config.REQUEST_TIMEOUT,
-    })
-    return {
-      text: res.data as string,
-      json: () => res.data,
-      status: res.status,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  protected async httpGet(
+    url: string,
+    options?: {
+      params?: Record<string, unknown>
+      headers?: Record<string, string>
+      timeout?: number
     }
-  } catch (e: unknown) {
-    const err = e as { code?: string; response?: { status: number }; message?: string }
-    console.error(`❌ HTTP hata [${url}]: kod=${err.code} status=${err.response?.status} mesaj=${err.message}`)
-    return null
+  ): Promise<{ text: string; json: () => unknown; status: number } | null> {
+    try {
+      const res = await this.httpClient.get(url, {
+        params: options?.params,
+        headers: options?.headers,
+        timeout: options?.timeout ?? Config.REQUEST_TIMEOUT,
+      })
+      return {
+        text: res.data as string,
+        json: () => res.data,
+        status: res.status,
+      }
+    } catch (e: unknown) {
+      const err = e as { code?: string; response?: { status: number }; message?: string }
+      console.error(`❌ HTTP hata [${url}]: kod=${err.code} status=${err.response?.status} mesaj=${err.message}`)
+      return null
+    }
   }
-} 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-protected load(html: string): any {
-  return cheerio.load(html)
-}
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  protected load(html: string): any {
+    return cheerio.load(html)
+  }
+
   // ============================================================
-  // PARALEL TARİH ÇEKME - EARLY STOPPING İLE (Hız optimizasyonu)
-  // Haberler batch'ler halinde paralel işlenir.
-  // Arka arkaya 3 eski haber bulununca durur → gereksiz istek yok.
+  // PARALEL TARİH ÇEKME - EARLY STOPPING İLE
+  // MAX_WORKERS kadar istek aynı anda atılır.
+  // MAX_CONSECUTIVE_OLD arka arkaya eski haber → dur.
   // ============================================================
   protected async fetchDatesParallelWithEarlyStop(
     newsList: RawNewsItem[]
   ): Promise<NewsItem[]> {
     const finalNews: NewsItem[] = []
-    const MAX_CONSECUTIVE_OLD = 3
+    const MAX_CONSECUTIVE_OLD = Config.MAX_CONSECUTIVE_OLD
     let consecutiveOld = 0
     let processedCount = 0
 
-    // Haberleri MAX_WORKERS büyüklüğünde batch'lere böl
     const batchSize = Config.MAX_WORKERS
     const batches: RawNewsItem[][] = []
     for (let i = 0; i < newsList.length; i += batchSize) {
@@ -141,7 +155,6 @@ protected load(html: string): any {
     outer: for (const batch of batches) {
       if (consecutiveOld >= MAX_CONSECUTIVE_OLD) break
 
-      // Batch içindeki tüm istekleri aynı anda at → paralel
       const results = await Promise.allSettled(
         batch.map(async (item) => {
           const newsDate = await this.fetchNewsDate(item.link)
@@ -164,8 +177,6 @@ protected load(html: string): any {
         if (result.status === 'fulfilled' && result.value.news) {
           finalNews.push(result.value.news)
           consecutiveOld = 0
-        } else if (result.status === 'fulfilled' && result.value.date) {
-          consecutiveOld++
         } else {
           consecutiveOld++
         }
@@ -236,17 +247,14 @@ protected load(html: string): any {
   }
 
   protected parseTurkishDate(text: string): Date | null {
-    // DD.MM.YYYY - HH:MM
     const match = text.match(/(\d{2})\.(\d{2})\.(\d{4})\s*[-–]\s*(\d{2}):(\d{2})/)
     if (match) {
       return new Date(+match[3], +match[2] - 1, +match[1], +match[4], +match[5])
     }
-    // DD.MM.YYYY HH:MM
     const match2 = text.match(/(\d{2})\.(\d{2})\.(\d{4})\s+(\d{2}):(\d{2})/)
     if (match2) {
       return new Date(+match2[3], +match2[2] - 1, +match2[1], +match2[4], +match2[5])
     }
-    // DD.MM.YYYY
     const match3 = text.match(/(\d{2})\.(\d{2})\.(\d{4})/)
     if (match3) {
       return new Date(+match3[3], +match3[2] - 1, +match3[1])
